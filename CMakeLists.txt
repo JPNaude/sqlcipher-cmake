@@ -48,26 +48,27 @@
 # Enjoy.
 ##############################################################################
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.8)
 
 ##########################################################
 ## Configuration
 ##########################################################
 
 ### SQLite source path
-set(SQLITE_SRC_DIR "D:/work/cpp/libs/sqlcipher/sqlite-src")
+set(SQLITE_SRC_DIR "D:/work/software/sqlcipher/sqlite-amalgamation")
 
 ### SQLite Cipher sources root
-set(CIPHER_ROOT "D:/work/cpp/libs/sqlcipher/sqlcipher-src")
+set(CIPHER_ROOT "D:/work/software/sqlcipher/sqlcipher")
 
 ### Definitions
 set(CIPHER_DEF "-DSQLITE_HAS_CODEC -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_TEMP_STORE=2")
 
 ### Win32 OpenSSL instalation path
-set(OPENSSL_ROOT "D:/programs/OpenSSL-Win32")
+set(OPENSSL_ROOT "D:/tools/OpenSSL-Win64")
 
 # Uncomment if you want to specify Qt4
-# set(QT_QMAKE_EXECUTABLE "D:/work/cpp/libs/qt-4.8.3/bin/qmake")
+set(QT_QMAKE_EXECUTABLE "D:/tools/qt/Qt5.1.1/5.1.1/msvc2012_64/bin/qmake")
+set(CMAKE_PREFIX_PATH "D:/tools/qt/Qt5.1.1/5.1.1/msvc2012_64")
 
 option(OPENSSL_MT "Use OpenSSL MT libs instead of MD" OFF)
 option(OPENSSL_STATIC "Use OpenSSL static libs instead of dynamic" OFF)
@@ -139,10 +140,19 @@ if (MSVC)
     endif()
 endif()
 
-### Configure Qt4
+### Configure Qt
 if (BUILD_QT_PLUGIN)
-    find_package(Qt4 COMPONENTS QtCore QtSql REQUIRED)
-    include(${QT_USE_FILE})
+	# Tell CMake to run moc when necessary:
+	#set(CMAKE_AUTOMOC ON)
+	# As moc files are generated in the binary dir, tell CMake
+	# to always look for includes there:
+	set(CMAKE_INCLUDE_CURRENT_DIR ON)
+	
+	find_package(Qt5Core REQUIRED)
+	find_package(Qt5Sql REQUIRED)
+	if (Qt5Core_FOUND)
+		message(STATUS "Building with Qt5 support")	
+	endif()
 endif()
 
 
@@ -151,6 +161,7 @@ aux_find_file(SQLITE_SHELL_C shell.c ${SQLITE_SRC_DIR})
 aux_find_file(SQLITE_C sqlite3.c ${SQLITE_SRC_DIR})
 aux_find_file(CIPHER_CRYPTO_H crypto.h ${CIPHER_ROOT}/src)
 aux_find_file(CIPHER_CRYPTO_C crypto.c ${CIPHER_ROOT}/src)
+aux_find_file(CIPHER_CRYPTO_OPEN_SSL_C crypto_openssl.c ${CIPHER_ROOT}/src)
 aux_find_file(CIPHER_CRYPTO_IMPL_C crypto_impl.c ${CIPHER_ROOT}/src)
 aux_find_file(CIPHER_PAGER_C pager.c ${CIPHER_ROOT}/src)
 aux_find_openssl_lib(OPENSSL_LIB)
@@ -162,11 +173,13 @@ set(SQLITESRC_C ${CMAKE_CURRENT_BINARY_DIR}/sqlite3.c)
 file(READ ${SQLITE_C} BUF)
 file(WRITE ${SQLITESRC_C} "${BUF}")
 file(APPEND ${SQLITESRC_C} "#include \"crypto.c\"")
+file(APPEND ${SQLITESRC_C} "#include \"crypto_openssl.c\"")
 message(STATUS "Preparing sqlite3.c - done")
 
 
 message(STATUS "Preparing crypto.c")
 set(CRYPTO_SRC ${CMAKE_CURRENT_BINARY_DIR}/crypto.c)
+#set(CRYPTO_OPENSSL_SRC ${CMAKE_CURRENT_BINARY_DIR}/crypto_openssl.c)
 
 ### Create crypto.c
 file(READ ${CIPHER_CRYPTO_H} BUF)
@@ -179,9 +192,16 @@ string(REGEX REPLACE "#include \"btreeInt.h\"" "" BUF "${BUF}")
 string(REGEX REPLACE "#include \"crypto.h\"" "" BUF "${BUF}")
 file(APPEND ${CRYPTO_SRC} "${BUF}")
 
+### Append crypto_openssl.c to the new crypto.c
+file(READ ${CIPHER_CRYPTO_OPEN_SSL_C} BUF)
+string(REGEX REPLACE "#include \"sqliteInt.h\"" "" BUF "${BUF}")
+string(REGEX REPLACE "#include \"btreeInt.h\"" "" BUF "${BUF}")
+string(REGEX REPLACE "#include \"crypto.h\"" "" BUF "${BUF}")
+file(APPEND ${CRYPTO_SRC} "${BUF}")
+
 ### Append crypto part from the pager.c to crypto.c
 file(READ ${CIPHER_PAGER_C} BUF)
-string(REGEX MATCH "/\\* BEGIN CRYPTO \\*/(.*)/\\* END CRYPTO \\*/" val "${BUF}")
+string(REGEX MATCH "/\\* BEGIN SQLCIPHER \\*/(.*)/\\* END SQLCIPHER \\*/" val "${BUF}")
 if (NOT CMAKE_MATCH_1)
     message(FATAL_ERROR "Can't get data from ${CIPHER_PAGER_C}")
 endif()
@@ -201,6 +221,11 @@ message(STATUS "Build shell: ${BUILD_SHELL}")
 set(CMAKE_DEBUG_POSTFIX d)
 include_directories(${OPENSSL_ROOT}/include)
 include_directories(${SQLITE_SRC_DIR})
+include_directories(${CIPHER_ROOT}/src)
+include_directories(${QT_QMAKE_EXECUTABLE}/../../src/qtbase/src/sql/drivers/sqlite)
+include_directories(${QT_QMAKE_EXECUTABLE}/../../src/qtbase/include/QtCore/5.1.1)
+include_directories(${QT_QMAKE_EXECUTABLE}/../../src/qtbase/include/QtCore/5.1.1/QtCore)
+include_directories(${QT_QMAKE_EXECUTABLE}/../../src/qtbase/include/QtSql/5.1.1)
 add_definitions(${CIPHER_DEF})
 
 # cipher lib
@@ -221,12 +246,13 @@ if (BUILD_SHELL)
     add_dependencies(sqlite sqlcipher)
 endif()
 
-# Qt4 sqlcipher plugin
+# Qt5 sqlcipher plugin
 if (BUILD_QT_PLUGIN)
     add_definitions(-DQT_PLUGIN)
-    qt4_wrap_cpp(SRC ${QT_INCLUDE_DIR}/../src/sql/drivers/sqlite/qsql_sqlite.h)
-    add_library(qsqlcipher4 SHARED smain.cpp ${SRC} ${QT_INCLUDE_DIR}/../src/sql/drivers/sqlite/qsql_sqlite.cpp)
-    target_link_libraries(qsqlcipher4 ${QT_LIBRARIES} sqlcipher)
-    add_dependencies(qsqlcipher4 sqlcipher)
-    install(TARGETS qsqlcipher4 DESTINATION ${QT_PLUGINS_DIR}/sqldrivers)
+    qt5_wrap_cpp(SRC ${QT_QMAKE_EXECUTABLE}/../../src/qtbase/src/sql/drivers/sqlite/qsql_sqlite_p.h)
+    add_library(qsqlcipher SHARED smain.cpp ${SRC} ${QT_QMAKE_EXECUTABLE}/../../src/qtbase/src/sql/drivers/sqlite/qsql_sqlite.cpp)
+    target_link_libraries(qsqlcipher ${QT_LIBRARIES} sqlcipher)
+    qt5_use_modules(qsqlcipher Core Sql)
+    add_dependencies(qsqlcipher sqlcipher)
+    install(TARGETS qsqlcipher DESTINATION ${QT_PLUGINS_DIR}/sqldrivers)
 endif()

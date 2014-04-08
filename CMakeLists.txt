@@ -164,6 +164,7 @@ aux_find_file(CIPHER_CRYPTO_C crypto.c ${CIPHER_ROOT}/src)
 aux_find_file(CIPHER_CRYPTO_OPEN_SSL_C crypto_openssl.c ${CIPHER_ROOT}/src)
 aux_find_file(CIPHER_CRYPTO_IMPL_C crypto_impl.c ${CIPHER_ROOT}/src)
 aux_find_file(CIPHER_PAGER_C pager.c ${CIPHER_ROOT}/src)
+aux_find_file(CIPHER_FUNC_C func.c ${CIPHER_ROOT}/src)
 aux_find_openssl_lib(OPENSSL_LIB)
 message(STATUS "Searching files - done")
 
@@ -171,9 +172,20 @@ message(STATUS "Searching files - done")
 message(STATUS "Preparing sqlite3.c")
 set(SQLITESRC_C ${CMAKE_CURRENT_BINARY_DIR}/sqlite3.c)
 file(READ ${SQLITE_C} BUF)
+
+## In order to register sqlcipher_export function, we need to replace stuff in sqlite3.c:
+file(READ ${CIPHER_FUNC_C} BUF2)
+string(REGEX MATCH "\\/[\r\n]void sqlite3RegisterBuiltinFunctions(.*)\\/[\r\n]}[\r\n]" val "${BUF2}")
+if (NOT CMAKE_MATCH_1)
+    message(FATAL_ERROR "Can't find sqlite3RegisterBuiltinFunctions() in ${CIPHER_FUNC_C}")
+endif()
+#message(STATUS "Matched sqlite3RegisterBuiltinFunctions(): ${CMAKE_MATCH_1}")
+string(REGEX REPLACE "\\/[\r\n]SQLITE_PRIVATE void sqlite3RegisterBuiltinFunctions.*static void setLikeOptFlag" "/\nSQLITE_PRIVATE void sqlite3RegisterBuiltinFunctions${CMAKE_MATCH_1}/\n}\n\nstatic void setLikeOptFlag" BUF "${BUF}")
+
 file(WRITE ${SQLITESRC_C} "${BUF}")
-file(APPEND ${SQLITESRC_C} "#include \"crypto.c\"")
-file(APPEND ${SQLITESRC_C} "#include \"crypto_openssl.c\"")
+file(APPEND ${SQLITESRC_C} "#include \"crypto.c\"\r\n")
+#file(APPEND ${SQLITESRC_C} "#include \"crypto_openssl.c\"\r\n")
+
 message(STATUS "Preparing sqlite3.c - done")
 
 
